@@ -462,7 +462,7 @@ export default function Index() {
             </p>
           </div>
 
-          {/*  MENU ITEMS WITH "ADD TO CART" BUTTONS*/}
+          {/*  menu items with "add to cart" buttons*/}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {menuItems.map((item, index) => (
               <div
