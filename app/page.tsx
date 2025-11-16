@@ -115,19 +115,19 @@ export default function Index() {
     setTimeout(() => setCartAnimation(false), 600);
   };
 
- // 🗑️ remove from cart function (removes one quantity at a time)
+  // 🗑️ remove from cart function (removes one quantity at a time)
   const removeFromCart = (itemName: string) => {
-    setCart((prevCart) =>
-      prevCart
-        .map((item) =>
-          item.name === itemName
-            ? { ...item, quantity: item.quantity - 1 } // subtract one
-            : item
-        )
-        .filter((item) => item.quantity > 0) // keep only items above 0 quantity
+    setCart(
+      (prevCart) =>
+        prevCart
+          .map((item) =>
+            item.name === itemName
+              ? { ...item, quantity: item.quantity - 1 } // subtract one
+              : item
+          )
+          .filter((item) => item.quantity > 0) // keep only items above 0 quantity
     );
   };
-  
 
   // removes all items from the cart at once
   const clearCart = () => {
@@ -231,6 +231,22 @@ export default function Index() {
                 )}
               </button>
 
+              {/* Mobile Cart Button  */}
+              <button
+                onClick={() => setIsCartOpen(true)}
+                className={`md:hidden flex items-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-lg relative ${
+                  cartAnimation ? "animate-[bounce_0.6s_ease-in-out]" : ""
+                }`}
+              >
+                <ShoppingCart className="w-5 h-5" />
+
+                {cart.length > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                    {cart.reduce((total, item) => total + item.quantity, 0)}
+                  </span>
+                )}
+              </button>
+
               {/* Mobile Hamburger */}
               <button
                 className="md:hidden flex flex-col space-y-1.5 p-2"
@@ -288,29 +304,6 @@ export default function Index() {
                   className="text-left text-gray-800 hover:text-orange-600 transition-colors font-medium"
                 >
                   Contact
-                </button>
-
-                {/* 🛒 CART BUTTON - Mobile with Animation */}
-                <button
-                  onClick={() => {
-                    setIsCartOpen(true);
-                    setIsMenuOpen(false);
-                  }}
-                  className={`flex items-center space-x-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-all justify-center relative ${
-                    cartAnimation ? "animate-[bounce_0.6s_ease-in-out]" : ""
-                  }`}
-                >
-                  <ShoppingCart className="w-5 h-5" />
-                  <span className="font-semibold">Cart</span>
-                  {cart.length > 0 && (
-                    <span
-                      className={`absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center transition-all ${
-                        cartAnimation ? "animate-[scale-in_0.3s_ease-out]" : ""
-                      }`}
-                    >
-                      {cart.reduce((total, item) => total + item.quantity, 0)}
-                    </span>
-                  )}
                 </button>
               </div>
             </nav>
@@ -374,9 +367,34 @@ export default function Index() {
                         <p className="text-orange-500 font-bold mt-1">
                           {item.price}
                         </p>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Quantity: {item.quantity}
-                        </p>
+                        <div className="flex items-center space-x-3 mt-2">
+                          {/* Decrease Quantity */}
+                          <button
+                            onClick={() => removeFromCart(item.name)}
+                            className="w-8 h-8 flex items-center justify-center bg-gray-200 rounded-md text-gray-700 hover:bg-gray-300"
+                          >
+                            -
+                          </button>
+
+                          {/* Quantity Number */}
+                          <span className="font-semibold text-gray-800">
+                            {item.quantity}
+                          </span>
+
+                          {/* Increase Quantity */}
+                          <button
+                            onClick={() =>
+                              addToCart({
+                                name: item.name,
+                                price: item.price,
+                                description: "",
+                              })
+                            }
+                            className="w-8 h-8 flex items-center justify-center bg-gray-200 rounded-md text-gray-700 hover:bg-gray-300"
+                          >
+                            +
+                          </button>
+                        </div>
                       </div>
                       {/* Remove button */}
                       <button
