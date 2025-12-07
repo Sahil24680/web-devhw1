@@ -776,7 +776,7 @@ export default function Index() {
                   <div className="mt-4">
                     <p className="font-semibold text-gray-800 mb-2">Items:</p>
                     <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5">
-                      {order.order_items.map((item, i) => (
+                      {order.order_items.map((item: any, i:any) => (
                         <li key={i}>
                           {item.menu_items?.name} × {item.quantity} – $
                           {(item.price_each * item.quantity).toFixed(2)}
