@@ -1,6 +1,6 @@
 "use client";
-
-import { useState } from "react";
+import { supabase } from "./supabaseClient";
+import { useState, useEffect } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -30,6 +30,7 @@ export default function Index() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   // State to trigger animation when item is added
   const [cartAnimation, setCartAnimation] = useState(false);
+  const [cartId, setCartId] = useState<string | null>(null);
 
   const galleryImages = [
     "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
@@ -40,38 +41,58 @@ export default function Index() {
     "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80",
   ];
 
-  const menuItems = [
-    {
-      name: "Grilled Salmon",
-      price: "$28",
-      description: "Fresh Atlantic salmon with herbs",
-    },
-    {
-      name: "Beef Tenderloin",
-      price: "$35",
-      description: "Prime cut with seasonal vegetables",
-    },
-    {
-      name: "Truffle Risotto",
-      price: "$24",
-      description: "Creamy arborio rice with black truffle",
-    },
-    {
-      name: "Duck Confit",
-      price: "$32",
-      description: "Traditional French preparation",
-    },
-    {
-      name: "Lobster Bisque",
-      price: "$18",
-      description: "Rich and creamy soup",
-    },
-    {
-      name: "Chocolate Soufflé",
-      price: "$14",
-      description: "Warm with vanilla ice cream",
-    },
-  ];
+  const [menuItems, setMenuItems] = useState<any[]>([]);
+
+  // Fetch menu items from Supabase
+  useEffect(() => {
+    const fetchMenuItems = async () => {
+      const { data, error } = await supabase.from("menu_items").select("*");
+      if (error) {
+        console.error("Error fetching menu:", error.message);
+      } else {
+        setMenuItems(data);
+      }
+    };
+
+    fetchMenuItems();
+  }, []);
+
+  const [pastOrders, setPastOrders] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchPastOrders();
+  }, []);
+
+  useEffect(() => {
+    const loadCartFromSupabase = async () => {
+      const savedCartId = localStorage.getItem("cart_id");
+      if (!savedCartId) return;
+
+      setCartId(savedCartId); // ✅ Restore cart ID
+
+      const { data, error } = await supabase
+        .from("cart_items")
+        .select("quantity, menu_items(name, price)")
+        .eq("cart_id", savedCartId);
+
+      if (error) {
+        console.error("Error loading cart:", error.message);
+        return;
+      }
+
+      const loadedCart = data.map((item) => ({
+        //@ts-ignore
+        name: item.menu_items.name,
+        //@ts-ignore
+        price: item.menu_items.price,
+        quantity: item.quantity,
+      }));
+
+      setCart(loadedCart);
+    };
+
+    loadCartFromSupabase();
+  }, []);
 
   /**
    * ------------------------------------------------------------
@@ -83,26 +104,77 @@ export default function Index() {
    * 3. If no: adds it as a new item with quantity 1
    * 4. Triggers a bounce animation on the cart button
    */
-  const addToCart = (item: {
+  const addToCart = async (item: {
     name: string;
     price: string;
     description: string;
   }) => {
-    setCart((prevCart) => {
-      // Check if item already exists in cart
-      const existingItem = prevCart.find(
-        (cartItem) => cartItem.name === item.name
-      );
+    let currentCartId = cartId;
 
-      if (existingItem) {
-        // if item exists increase quantity
-        return prevCart.map((cartItem) =>
-          cartItem.name === item.name
-            ? { ...cartItem, quantity: cartItem.quantity + 1 }
-            : cartItem
+    // Step 1: Create a new cart if none exists
+    if (!currentCartId) {
+      currentCartId = crypto.randomUUID();
+      const { error } = await supabase.from("carts").insert([
+        {
+          id: currentCartId,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      if (error) {
+        console.error("Error creating cart:", error.message);
+        return;
+      }
+
+      localStorage.setItem("cart_id", currentCartId);
+      setCartId(currentCartId); // Will update state, but we still use local variable here
+    }
+
+    // Step 2: Fetch the menu item's ID and price from Supabase
+    const { data: menuItem, error: fetchError } = await supabase
+      .from("menu_items")
+      .select("id, price")
+      .eq("name", item.name)
+      .single();
+
+    if (fetchError || !menuItem) {
+      console.error("Error fetching menu item:", fetchError?.message);
+      return;
+    }
+
+    // Step 3: Check if the item is already in the cart
+    const { data: existingItem } = await supabase
+      .from("cart_items")
+      .select("id, quantity")
+      .eq("cart_id", currentCartId)
+      .eq("menu_item_id", menuItem.id)
+      .single();
+
+    // Step 4: Update or insert into the cart_items table
+    if (existingItem) {
+      await supabase
+        .from("cart_items")
+        .update({ quantity: existingItem.quantity + 1 })
+        .eq("id", existingItem.id);
+    } else {
+      await supabase.from("cart_items").insert([
+        {
+          cart_id: currentCartId,
+          menu_item_id: menuItem.id,
+          quantity: 1,
+          added_at: new Date().toISOString(),
+        },
+      ]);
+    }
+
+    // Step 5: Update local UI cart state
+    setCart((prevCart) => {
+      const existing = prevCart.find((c) => c.name === item.name);
+      if (existing) {
+        return prevCart.map((c) =>
+          c.name === item.name ? { ...c, quantity: c.quantity + 1 } : c
         );
       } else {
-        // if item doesn't exist  add new item with quantity 1
         return [
           ...prevCart,
           { name: item.name, price: item.price, quantity: 1 },
@@ -110,35 +182,180 @@ export default function Index() {
       }
     });
 
-    // Trigger animation on cart button
+    // Trigger animation
     setCartAnimation(true);
     setTimeout(() => setCartAnimation(false), 600);
   };
+  const fetchPastOrders = async () => {
+    const storedCartId = localStorage.getItem("cart_id");
+    if (!storedCartId) return;
+
+    const { data, error } = await supabase
+      .from("orders")
+      .select(
+        `
+      id,
+      placed_at,
+      total_price,
+      status,
+      order_items (
+        quantity,
+        price_each,
+        menu_items (
+          name
+        )
+      )
+    `
+      )
+      .eq("cart_id", storedCartId)
+      .order("placed_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching orders:", error.message);
+      return;
+    }
+
+    setPastOrders(data);
+  };
 
   // 🗑️ remove from cart function (removes one quantity at a time)
-  const removeFromCart = (itemName: string) => {
-    setCart(
-      (prevCart) =>
-        prevCart
-          .map((item) =>
-            item.name === itemName
-              ? { ...item, quantity: item.quantity - 1 } // subtract one
-              : item
-          )
-          .filter((item) => item.quantity > 0) // keep only items above 0 quantity
-    );
+  const removeFromCart = async (itemName: string) => {
+    const updatedCart = cart
+      .map((item) =>
+        item.name === itemName ? { ...item, quantity: item.quantity - 1 } : item
+      )
+      .filter((item) => item.quantity > 0);
+
+    setCart(updatedCart);
+
+    // Remove from Supabase
+    const { data: menuItem } = await supabase
+      .from("menu_items")
+      .select("id")
+      .eq("name", itemName)
+      .single();
+
+    if (!menuItem || !cartId) return;
+
+    const { data: existingItem } = await supabase
+      .from("cart_items")
+      .select("id, quantity")
+      .eq("cart_id", cartId)
+      .eq("menu_item_id", menuItem.id)
+      .single();
+
+    if (existingItem) {
+      if (existingItem.quantity <= 1) {
+        await supabase.from("cart_items").delete().eq("id", existingItem.id);
+      } else {
+        await supabase
+          .from("cart_items")
+          .update({ quantity: existingItem.quantity - 1 })
+          .eq("id", existingItem.id);
+      }
+    }
   };
 
   // removes all items from the cart at once
-  const clearCart = () => {
+  const clearCart = async () => {
     setCart([]);
+
+    if (!cartId) return;
+
+    await supabase.from("cart_items").delete().eq("cart_id", cartId);
+  };
+
+  const checkout = async () => {
+    if (cart.length === 0) return;
+
+    if (!cartId) {
+      console.error("No cart to checkout.");
+      return;
+    }
+
+    // Insert cart items
+    for (const item of cart) {
+      const { data: menuItem } = await supabase
+        .from("menu_items")
+        .select("id")
+        .eq("name", item.name)
+        .single();
+
+      if (!menuItem) {
+        console.error("Menu item not found:", item.name);
+        continue;
+      }
+
+      const { error: itemError } = await supabase.from("cart_items").insert([
+        {
+          cart_id: cartId,
+          menu_item_id: menuItem.id,
+          quantity: item.quantity,
+          added_at: new Date().toISOString(),
+        },
+      ]);
+
+      if (itemError) {
+        console.error("Error adding item:", itemError.message);
+      }
+    }
+
+    // Create order
+    const orderId = crypto.randomUUID();
+    const totalPrice = calculateTotal();
+
+    const { error: orderError } = await supabase.from("orders").insert([
+      {
+        id: orderId,
+        cart_id: cartId,
+        customer_name: "Guest User",
+        customer_email: "guest@example.com",
+        total_price: totalPrice,
+        status: "pending",
+        placed_at: new Date().toISOString(),
+      },
+    ]);
+
+    if (orderError) {
+      console.error("Order error:", orderError.message);
+      return;
+    }
+
+    // Insert order items
+    for (const item of cart) {
+      const { data: menuItem } = await supabase
+        .from("menu_items")
+        .select("id, price")
+        .eq("name", item.name)
+        .single();
+
+      if (!menuItem) continue;
+
+      await supabase.from("order_items").insert([
+        {
+          order_id: orderId,
+          menu_item_id: menuItem.id,
+          quantity: item.quantity,
+          price_each: menuItem.price,
+        },
+      ]);
+    }
+
+    alert("✅ Order placed successfully!");
+    await fetchPastOrders();
+    clearCart();
+    setIsCartOpen(false);
   };
 
   // calculates the total price of items in the cart
   const calculateTotal = () => {
     return cart.reduce((total, item) => {
       // Remove the $ sign and convert to number
-      const price = parseFloat(item.price.replace("$", ""));
+      const price =
+        typeof item.price === "string"
+          ? parseFloat(item.price.replace("$", ""))
+          : item.price;
+
       return total + price * item.quantity;
     }, 0);
   };
@@ -423,7 +640,10 @@ export default function Index() {
 
                 {/* Action Buttons */}
                 <div className="space-y-2">
-                  <button className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors">
+                  <button
+                    onClick={checkout}
+                    className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+                  >
                     Proceed to Checkout
                   </button>
 
@@ -510,6 +730,64 @@ export default function Index() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+      {/* ✅ Past Orders Section */}
+      <section id="past-orders" className="py-20 bg-gray-50 px-4">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-3xl font-bold text-gray-900 mb-6">
+            Your Past Orders
+          </h2>
+
+          {pastOrders.length === 0 ? (
+            <p className="text-gray-600">You haven't placed any orders yet.</p>
+          ) : (
+            <ul className="space-y-4">
+              {pastOrders.map((order) => (
+                <li
+                  key={order.id}
+                  className="p-4 border border-gray-200 rounded-lg shadow-sm bg-white"
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="text-lg font-semibold text-gray-800">
+                      Order #{order.id.slice(0, 8)}...
+                    </span>
+                    <span className="text-sm text-gray-500">
+                      {new Date(order.placed_at).toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 text-gray-700 space-y-1">
+                    <p>
+                      <strong>Status:</strong>{" "}
+                      <span className="font-medium capitalize text-orange-600">
+                        {order.status}
+                      </span>
+                    </p>
+                    <p>
+                      <strong>Total:</strong>{" "}
+                      <span className="font-semibold text-gray-800">
+                        ${order.total_price}
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* 🧾 Ordered Items */}
+                  <div className="mt-4">
+                    <p className="font-semibold text-gray-800 mb-2">Items:</p>
+                    <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5">
+                      {order.order_items.map((item, i) => (
+                        <li key={i}>
+                          {item.menu_items?.name} × {item.quantity} – $
+                          {(item.price_each * item.quantity).toFixed(2)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </section>
 
